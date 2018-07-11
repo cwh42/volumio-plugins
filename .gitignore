@@ -1,3 +1,5 @@
+*swp
+node-modules/
 volumio-plugins.iml
 .idea/compiler.xml
 .idea/encodings.xml
