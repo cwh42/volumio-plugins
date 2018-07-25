@@ -36,6 +36,8 @@ internetArchive.prototype.onStart = function() {
     var self = this;
     var defer = libQ.defer();
 
+    self.mpdPlugin = this.commandRouter.pluginManager.getPlugin('music_service','mpd');
+
     self.addToBrowseSources();
     self.serviceName = "internet_archive";
 
@@ -168,7 +170,7 @@ internetArchive.prototype.listRoot = function() {
         Request.timeout(1500)
         Request.query({
             q: 'title:"Riders In The Sky" AND mediatype:audio',
-            fields: 'creator,identifier,title'
+            fields: 'creator,identifier,title,collection'
         }).end(function(response) {
             if (response.status === 200) {
                 self.logger.info('[archive.org] got response');
@@ -178,8 +180,8 @@ internetArchive.prototype.listRoot = function() {
                         service: 'internet_archive',
                         type: 'track',
                         title: item.title,
-                        artist: '',
-                        album: '',
+                        artist: item.creator.join('; '),
+                        album: item.collection.join(', '),
                         icon: 'fa fa-music',
                         //albumart: '',
                         uri: base_url + 'download/' + item.identifier
@@ -202,11 +204,40 @@ internetArchive.prototype.listRoot = function() {
 // Define a method to clear, add, and play an array of tracks
 internetArchive.prototype.clearAddPlayTrack = function(track) {
     var self = this;
+    var defer = libQ.defer();
+
     self.commandRouter.pushConsoleMessage('[' + Date.now() + '] ' + 'internetArchive::clearAddPlayTrack');
 
     self.commandRouter.logger.info(JSON.stringify(track));
 
-    return self.sendSpopCommand('uplay', [track.uri]);
+    return self.mpdPlugin.sendMpdCommand('stop', [])
+        .then(function() {
+            return self.mpdPlugin.sendMpdCommand('clear', []);
+        })
+        .then(function() {
+            return self.mpdPlugin.sendMpdCommand('add "'+track.uri+'"',[]);
+        })
+        .then(function () {
+        self.mpdPlugin.clientMpd.on('system', function (status) {
+            if (status !== 'playlist' && status !== undefined) {
+            self.getState().then(function (state) {
+                if (state.status === 'play') {
+                return self.pushState(state);
+                }
+            });
+            }
+        });
+
+        return self.mpdPlugin.sendMpdCommand('play', []).then(function () {
+            return self.getState().then(function (state) {
+            return self.pushState(state);
+            });
+        });
+
+        })
+        .fail(function (e) {
+        return defer.reject(new Error());
+        });
 };
 
 internetArchive.prototype.seek = function(timepos) {
